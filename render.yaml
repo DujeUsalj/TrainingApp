@@ -1,0 +1,19 @@
+# Render Blueprint (opcionalno): New → Blueprint → poveži repo
+# PostgreSQL bazu dodaj ručno u Render dashboardu i postavi DATABASE_URL na ovaj servis.
+
+services:
+  - type: web
+    name: training-monitor-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: HOST
+        value: "0.0.0.0"
+      # Postavi u Render dashboardu:
+      # DATABASE_URL (iz PostgreSQL add-on)
+      # JWT_SECRET
+      # CORS_ORIGIN (URL Vercel frontenda)

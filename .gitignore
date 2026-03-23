@@ -1,0 +1,14 @@
+# Secrets
+server/.env
+client/.env
+client/.env.local
+client/.env.development
+client/.env.production
+*.pem
+
+# Dependencies & build
+node_modules/
+client/dist/
+server/dist/
+
+.DS_Store
