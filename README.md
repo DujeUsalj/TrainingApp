@@ -35,7 +35,7 @@ npm run dev
 
 ## Produkcija
 
-Detaljne korake vidi u **[docs/DEPLOY.md](docs/DEPLOY.md)** (Render API + Vercel frontend).
+Detaljne korake vidi u **[docs/DEPLOY.md](docs/DEPLOY.md)** — **Railway + Vercel** (ako Render ne radi) ili Render + Vercel.
 
 ## Korisne naredbe
 

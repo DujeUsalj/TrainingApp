@@ -1,10 +1,47 @@
-# Postavljanje u produkciju (Render + Vercel)
+# Postavljanje u produkciju
 
-Ovaj vodič opisuje tipičan besplatni setup: **API na Renderu**, **PostgreSQL na Renderu**, **frontend na Vercelu**.
+Frontend je najčešće na **Vercelu**. Backend + bazu možeš staviti na **Railway** (preporuka ako ti Render ne radi) ili **Render**.
 
 ---
 
-## 1. PostgreSQL na Renderu
+## A) Railway + Vercel (ako Render ne učitava)
+
+1. Otvori **[railway.app](https://railway.app)** → prijava **Continue with GitHub**.
+
+2. **New project** → **Provision PostgreSQL** (ili **Database → Add PostgreSQL**).  
+   Pričekaj da se baza kreira.
+
+3. U istom projektu: **Add service** → **GitHub Repo** → odaberi **TrainingApp** (možda tražiš “Configure GitHub App” da Railway vidi repoe).
+
+4. Klikni na **novi servis** (Node/API), zatim **Settings**:
+   - **Root Directory**: `server`
+   - **Build Command**: `npm install` (ili ostavi prazno ako Railway sam detektira)
+   - **Start Command**: `npm start`
+   - **Watch Paths** (ako postoji): možeš ograničiti na `server/**`
+
+5. **Variables** (Environment) na **API servisu**:
+   - **`DATABASE_URL`**: u Railwayu često **povežeš** bazu ovako — otvori Postgres servis → tab **Variables** → kopiraj `DATABASE_URL` **ili** u API servisu **New Variable** → **Add Reference** → odaberi Postgres → `DATABASE_URL`.
+   - **`JWT_SECRET`**: jak nasumični string (32+ znakova).
+   - **`HOST`**: `0.0.0.0` (Railway i tako postavlja `PORT`).
+   - **`CORS_ORIGIN`**: nakon Vercela stavi točan URL, npr. `https://tvoj-projekt.vercel.app` (ili privremeno `*` samo za test).
+
+6. **Settings → Networking → Generate Domain** (javni HTTPS URL za API).  
+   Otvori u browseru: `https://tvoj-projekt.up.railway.app/` → trebao bi JSON *Training Monitor API radi!*
+
+7. **Shema baze** — ista kao lokalno: tablice `users`, `trainings`, itd. Pokreni SQL na Railway Postgresu (npr. **Query** tab u Railwayu ili `psql` s connection stringom).
+
+8. **Vercel** — kao u odjeljku [3. Frontend na Vercelu](#3-frontend-na-vercelu), ali:
+   - `VITE_API_BASE_URL` = **Railway URL** API-ja (bez `/` na kraju).
+
+9. Vrati se na Railway → API **Variables** → `CORS_ORIGIN` = točan Vercel URL → **Redeploy** ako treba.
+
+**Napomena:** Railway ponekad traži **karticu** za verifikaciju računa čak i uz besplatni kredit — to je njihova politika, ne greška u projektu.
+
+---
+
+## B) Render + Vercel (originalni vodič)
+
+### 1. PostgreSQL na Renderu
 
 1. Ulogiraj se na [render.com](https://render.com).
 2. **New → PostgreSQL**.
@@ -22,7 +59,7 @@ Ovaj vodič opisuje tipičan besplatni setup: **API na Renderu**, **PostgreSQL n
 
 ---
 
-## 2. Web servis (API) na Renderu
+### 2. Web servis (API) na Renderu
 
 1. **New → Web Service** → poveži Git repozitorij (ili deployaj ručno).
 2. Postavke:
@@ -52,7 +89,7 @@ Ovaj vodič opisuje tipičan besplatni setup: **API na Renderu**, **PostgreSQL n
 
 ---
 
-## 3. Frontend na Vercelu
+### 3. Frontend na Vercelu
 
 1. Ulogiraj se na [vercel.com](https://vercel.com).
 2. **Add New → Project** → importaj isti repo.
@@ -74,7 +111,7 @@ Ovaj vodič opisuje tipičan besplatni setup: **API na Renderu**, **PostgreSQL n
 
 ---
 
-## 4. Provjera nakon deploya
+### 4. Provjera nakon deploya
 
 - [ ] `GET /` na API-ju vraća poruku aplikacije  
 - [ ] Login s frontenda radi (nema CORS greške u konzoli)  
@@ -83,7 +120,7 @@ Ovaj vodič opisuje tipičan besplatni setup: **API na Renderu**, **PostgreSQL n
 
 ---
 
-## 5. Sigurnost (za dokumentaciju rada)
+### 5. Sigurnost (za dokumentaciju rada)
 
 - Lozinke se spremaju hashirane (`bcrypt`).
 - JWT potpisuje se tajnim ključem iz okoline (`JWT_SECRET`), ne u kodu.
@@ -92,12 +129,12 @@ Ovaj vodič opisuje tipičan besplatni setup: **API na Renderu**, **PostgreSQL n
 
 ---
 
-## 6. Alternativa: samo `render.yaml`
+### 6. Alternativa: samo `render.yaml`
 
 U rootu repozitorija postoji `render.yaml` kao polazna točka. PostgreSQL i ostale tajne varijable i dalje trebaš povezati u Render dashboardu.
 
 ---
 
-## 7. Mobilni uređaj i HTTPS
+### 7. Mobilni uređaj i HTTPS
 
 Live senzori (`DeviceMotion`) na iOS-u često zahtijevaju **HTTPS**. Produkcijski Vercel URL je HTTPS — koristi taj URL na mobitelu, ne `http://IP:5173`.

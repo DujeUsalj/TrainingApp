@@ -330,6 +330,9 @@ function App() {
   const [liveSampleCount, setLiveSampleCount] = useState(0);
   const [weatherByTrainingId, setWeatherByTrainingId] = useState({});
   const [weatherLoadingId, setWeatherLoadingId] = useState(null);
+  const [viewportWidth, setViewportWidth] = useState(
+    typeof window !== "undefined" ? window.innerWidth : 1280
+  );
   const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem("token"));
   const liveSensorRef = useRef({
     accelX: 0,
@@ -376,6 +379,8 @@ function App() {
 
     return {
       ...base,
+      minHeight: isMobile ? "44px" : base.minHeight,
+      width: isMobile ? "100%" : base.width,
       ...(disabled ? styles.disabledButton : {})
     };
   };
@@ -450,6 +455,9 @@ function App() {
 
     return sessions;
   }, [mySessions, showFinishedOnly, historySort]);
+
+  const isMobile = viewportWidth < 768;
+  const isTablet = viewportWidth >= 768 && viewportWidth < 1100;
 
   const handleLogin = async () => {
     try {
@@ -913,6 +921,17 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportWidth(window.innerWidth);
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
   const registerForTraining = async (trainingId) => {
     const token = localStorage.getItem("token");
 
@@ -937,18 +956,18 @@ function App() {
   };
 
   return (
-    <div style={styles.page}>
-      <div style={styles.container}>
-        <div style={styles.topBar}>
+    <div style={{ ...styles.page, padding: isMobile ? "12px" : "24px", border: isMobile ? "4px solid #22c55e" : styles.page.border }}>
+      <div style={{ ...styles.container, gap: isMobile ? "12px" : "20px" }}>
+        <div style={{ ...styles.topBar, padding: isMobile ? "14px" : "22px 24px", borderRadius: isMobile ? "14px" : "22px", marginBottom: isMobile ? "12px" : "24px" }}>
           <div style={styles.brandBlock}>
             <span style={styles.overline}>Training Monitor Platform</span>
-            <h1 style={styles.title}>Dashboard</h1>
-            <p style={styles.subtitle}>
+            <h1 style={{ ...styles.title, fontSize: isMobile ? "24px" : "34px" }}>Dashboard</h1>
+            <p style={{ ...styles.subtitle, fontSize: isMobile ? "13px" : "15px" }}>
               Pregled korisnika, treninga i session kontrole na jednom mjestu.
             </p>
           </div>
 
-          <div style={styles.topActions}>
+          <div style={{ ...styles.topActions, width: isMobile ? "100%" : "auto" }}>
             <button
               style={getButtonStyle(!isLoggedIn, "secondary")}
               onClick={fetchTrainings}
@@ -964,10 +983,19 @@ function App() {
           </div>
         </div>
 
-        <div style={styles.statsGrid}>
-          <div style={styles.statCard}>
+        <div
+          style={{
+            ...styles.statsGrid,
+            gridTemplateColumns: isMobile
+              ? "1fr"
+              : isTablet
+                ? "repeat(2, minmax(0, 1fr))"
+                : styles.statsGrid.gridTemplateColumns
+          }}
+        >
+          <div style={{ ...styles.statCard, padding: isMobile ? "14px" : "18px 20px", borderRadius: isMobile ? "14px" : "18px" }}>
             <div style={styles.statLabel}>Status korisnika</div>
-            <div style={styles.statValue}>{isLoggedIn ? "Online" : "Offline"}</div>
+            <div style={{ ...styles.statValue, fontSize: isMobile ? "22px" : "28px" }}>{isLoggedIn ? "Online" : "Offline"}</div>
             <div style={styles.statNote}>
               {isLoggedIn ? "Korisnik je uspješno prijavljen." : "Potrebna je prijava za rad."}
             </div>
@@ -976,19 +1004,19 @@ function App() {
             </div>
           </div>
 
-          <div style={styles.statCard}>
+          <div style={{ ...styles.statCard, padding: isMobile ? "14px" : "18px 20px", borderRadius: isMobile ? "14px" : "18px" }}>
             <div style={styles.statLabel}>Aktivna session</div>
-            <div style={styles.statValue}>{currentSessionId || "Nema"}</div>
+            <div style={{ ...styles.statValue, fontSize: isMobile ? "22px" : "28px" }}>{currentSessionId || "Nema"}</div>
             <div style={styles.statNote}>Session ID za trenutno praćenje aktivnosti.</div>
           </div>
 
-          <div style={styles.statCard}>
+          <div style={{ ...styles.statCard, padding: isMobile ? "14px" : "18px 20px", borderRadius: isMobile ? "14px" : "18px" }}>
             <div style={styles.statLabel}>Dostupni treninzi</div>
-            <div style={styles.statValue}>{trainings.length}</div>
+            <div style={{ ...styles.statValue, fontSize: isMobile ? "22px" : "28px" }}>{trainings.length}</div>
             <div style={styles.statNote}>Ukupan broj treninga dohvaćenih iz backend-a.</div>
           </div>
 
-          <div style={styles.statCard}>
+          <div style={{ ...styles.statCard, padding: isMobile ? "14px" : "18px 20px", borderRadius: isMobile ? "14px" : "18px" }}>
             <div style={styles.statLabel}>Zadnja aktivnost</div>
             <div style={styles.row}>
               <span style={{ ...styles.badge, ...statusBadgeStyle }}>
@@ -1004,11 +1032,12 @@ function App() {
         <div
           style={{
             ...styles.mainGrid,
-            gridTemplateColumns: window.innerWidth < 1100 ? "1fr" : "1.6fr 1fr"
+            gridTemplateColumns: isMobile || isTablet ? "1fr" : "1.6fr 1fr",
+            gap: isMobile ? "12px" : "20px"
           }}
         >
           <div style={styles.leftColumn}>
-            <div style={styles.card}>
+            <div style={{ ...styles.card, padding: isMobile ? "14px" : "20px", borderRadius: isMobile ? "14px" : "18px" }}>
               <div style={styles.cardHeader}>
                 <div>
                   <h2 style={styles.cardTitle}>Aktivni treninzi</h2>
@@ -1021,7 +1050,7 @@ function App() {
               ) : (
                 <ul style={styles.trainingList}>
                   {trainings.map((t) => (
-                    <li key={t.id} style={styles.trainingItem}>
+                    <li key={t.id} style={{ ...styles.trainingItem, padding: isMobile ? "14px" : "18px", borderRadius: isMobile ? "12px" : "16px" }}>
                       <div style={styles.trainingTop}>
                         <div>
                           <h3 style={styles.trainingTitle}>{t.title}</h3>
@@ -1032,7 +1061,7 @@ function App() {
                         </span>
                       </div>
 
-                      <div style={styles.row}>
+                      <div style={{ ...styles.row, flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center" }}>
                         <button
                           style={getButtonStyle(!isLoggedIn, "primary")}
                           onClick={() => registerForTraining(t.id)}
@@ -1072,13 +1101,13 @@ function App() {
               )}
             </div>
 
-            <div style={styles.card}>
+            <div style={{ ...styles.card, padding: isMobile ? "14px" : "20px", borderRadius: isMobile ? "14px" : "18px" }}>
               <div style={styles.cardHeader}>
                 <div>
                   <h2 style={styles.cardTitle}>Povijest sessiona</h2>
                   <p style={styles.cardText}>Zadnjih 10 sessiona prijavljenog korisnika.</p>
                 </div>
-                <div style={styles.row}>
+                <div style={{ ...styles.row, flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center" }}>
                   <button
                     style={getButtonStyle(!isLoggedIn, "secondary")}
                     onClick={() => setShowFinishedOnly((prev) => !prev)}
@@ -1152,7 +1181,7 @@ function App() {
           </div>
 
           <div style={styles.rightColumn}>
-            <div style={styles.card}>
+            <div style={{ ...styles.card, padding: isMobile ? "14px" : "20px", borderRadius: isMobile ? "14px" : "18px" }}>
               <div style={styles.cardHeader}>
                 <div>
                   <h2 style={styles.cardTitle}>Prijava korisnika</h2>
@@ -1163,7 +1192,7 @@ function App() {
               <div style={styles.inputGroup}>
                 <label style={styles.label}>Email</label>
                 <input
-                  style={styles.input}
+                  style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
                   placeholder="Unesi email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -1173,7 +1202,7 @@ function App() {
               <div style={styles.inputGroup}>
                 <label style={styles.label}>Password</label>
                 <input
-                  style={styles.input}
+                  style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
                   placeholder="Unesi password"
                   type="password"
                   value={password}
@@ -1181,7 +1210,7 @@ function App() {
                 />
               </div>
 
-              <div style={styles.row}>
+              <div style={{ ...styles.row, flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center" }}>
                 <button style={getButtonStyle(false, "primary")} onClick={handleLogin}>
                   Login
                 </button>
@@ -1190,7 +1219,7 @@ function App() {
               {message && <div style={messageStyle}>{message}</div>}
             </div>
 
-            <div style={styles.card}>
+            <div style={{ ...styles.card, padding: isMobile ? "14px" : "20px", borderRadius: isMobile ? "14px" : "18px" }}>
               <div style={styles.cardHeader}>
                 <div>
                   <h2 style={styles.cardTitle}>Metodologija testa</h2>
@@ -1218,7 +1247,7 @@ function App() {
               </div>
             </div>
 
-            <div style={styles.card}>
+            <div style={{ ...styles.card, padding: isMobile ? "14px" : "20px", borderRadius: isMobile ? "14px" : "18px" }}>
               <div style={styles.cardHeader}>
                 <div>
                   <h2 style={styles.cardTitle}>Praćenje aktivnosti</h2>
@@ -1260,7 +1289,12 @@ function App() {
 
               <div style={{ height: "14px" }} />
 
-              <div style={styles.sensorGrid}>
+              <div
+                style={{
+                  ...styles.sensorGrid,
+                  gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr"
+                }}
+              >
                 <button
                   style={getButtonStyle(!currentSessionId, "soft")}
                   onClick={sendRunningData}
@@ -1311,7 +1345,7 @@ function App() {
 
               {lastSessionResult?.session?.id && (
                 <div style={{ marginTop: "12px" }}>
-                  <div style={styles.row}>
+                  <div style={{ ...styles.row, flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center" }}>
                     <button
                       style={getButtonStyle(false, "secondary")}
                       onClick={() => fetchSessionResult(lastSessionResult.session.id)}
