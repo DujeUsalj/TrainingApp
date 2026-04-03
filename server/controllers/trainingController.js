@@ -52,17 +52,90 @@ exports.registerForTraining = async (req, res) => {
     });
   } catch (error) {
     console.error("Register for training error:", error.message);
+    if (error.code === "23505") {
+      return res.status(400).json({ message: "Already registered for this training" });
+    }
+    if (error.code === "23514") {
+      return res.status(400).json({
+        message:
+          "Prijava na trening nije dozvoljena za ovu ulogu (ograničenje u bazi). Trener i sportaš trebaju odvojene račune ili ukloni CHECK na participations.",
+      });
+    }
+    if (error.code === "23503") {
+      return res.status(400).json({ message: "Trening ne postoji." });
+    }
     res.status(500).json({ message: "Server error" });
   }
 };
+
+exports.unregisterFromTraining = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const trainingId = req.params.id;
+
+    const result = await pool.query(
+      `DELETE FROM participations
+       WHERE user_id = $1 AND training_id = $2
+       RETURNING *`,
+      [userId, trainingId],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Nisi prijavljen na ovaj trening" });
+    }
+
+    res.status(200).json({
+      message: "Uspješno odjavljen s treninga",
+      participation: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Unregister from training error:", error.message);
+    if (error.code === "23503") {
+      return res.status(400).json({
+        message: "Ne možeš se odjaviti dok postoje povezani zapisi (npr. sesija senzora).",
+      });
+    }
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 exports.getAllTrainings = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT * FROM trainings ORDER BY start_time ASC`,
+      `SELECT
+         t.*,
+         coach.first_name AS coach_first_name,
+         coach.last_name AS coach_last_name,
+         coach.email AS coach_email
+       FROM trainings t
+       LEFT JOIN users coach ON coach.id = t.coach_id
+       ORDER BY t.start_time ASC`,
     );
 
+    const rows = result.rows;
+    const userId = req.user?.id;
+
+    if (userId != null && userId !== undefined) {
+      const mine = await pool.query(
+        `SELECT id, training_id, status FROM participations WHERE user_id = $1`,
+        [userId],
+      );
+      const byTraining = new Map(mine.rows.map((r) => [Number(r.training_id), r]));
+
+      for (const t of rows) {
+        const p = byTraining.get(Number(t.id));
+        t.my_participation_id = p ? p.id : null;
+        t.my_participation_status = p ? p.status : null;
+      }
+    } else {
+      for (const t of rows) {
+        t.my_participation_id = null;
+        t.my_participation_status = null;
+      }
+    }
+
     res.status(200).json({
-      trainings: result.rows,
+      trainings: rows,
     });
   } catch (error) {
     console.error("Get trainings error:", error.message);
@@ -132,9 +205,29 @@ exports.updateParticipationStatus = async (req, res) => {
   }
 };
 
+const HOURLY_VARS =
+  "hourly=temperature_2m,precipitation_probability,windspeed_10m&timezone=auto";
+
+function pickClosestHourlyIndex(times, targetTimeMs) {
+  let closestIndex = 0;
+  let closestDiff = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < times.length; i += 1) {
+    const diff = Math.abs(new Date(times[i]).getTime() - targetTimeMs);
+    if (diff < closestDiff) {
+      closestDiff = diff;
+      closestIndex = i;
+    }
+  }
+  return closestIndex;
+}
+
 exports.getTrainingWeather = async (req, res) => {
   try {
-    const trainingId = req.params.id;
+    const trainingIdRaw = req.params.id;
+    const trainingId = Number.parseInt(String(trainingIdRaw), 10);
+    if (!Number.isFinite(trainingId)) {
+      return res.status(400).json({ message: "Neispravan ID treninga" });
+    }
 
     const trainingResult = await pool.query(
       `SELECT id, title, location, start_time
@@ -144,64 +237,82 @@ exports.getTrainingWeather = async (req, res) => {
     );
 
     if (trainingResult.rows.length === 0) {
-      return res.status(404).json({ message: "Training not found" });
+      return res.status(404).json({ message: "Trening nije pronađen" });
     }
 
     const training = trainingResult.rows[0];
 
-    if (!training.location) {
-      return res.status(400).json({ message: "Training location is missing" });
+    if (!training.location || !String(training.location).trim()) {
+      return res.status(400).json({ message: "Trening nema lokaciju (potrebna za vremensku prognozu)" });
+    }
+
+    if (!training.start_time) {
+      return res.status(400).json({ message: "Trening nema definiran početak" });
+    }
+
+    const startDateTime = new Date(training.start_time);
+    if (Number.isNaN(startDateTime.getTime())) {
+      return res.status(400).json({ message: "Neispravan datum početka treninga" });
     }
 
     const geocodeUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(training.location)}&count=1&language=en&format=json`;
     const geocodeResponse = await fetch(geocodeUrl);
 
     if (!geocodeResponse.ok) {
-      return res.status(502).json({ message: "Weather geocoding service unavailable" });
+      return res.status(502).json({ message: "Geokodiranje lokacije trenutno nije dostupno" });
     }
 
     const geocodeData = await geocodeResponse.json();
     const bestMatch = geocodeData?.results?.[0];
 
     if (!bestMatch) {
-      return res.status(404).json({ message: "Could not geocode training location" });
+      return res.status(404).json({ message: "Lokaciju treninga nije moguće pronaći na karti" });
     }
 
     const latitude = bestMatch.latitude;
     const longitude = bestMatch.longitude;
-    const startDateTime = new Date(training.start_time);
-    const date = startDateTime.toISOString().slice(0, 10);
+    const dateStr = startDateTime.toISOString().slice(0, 10);
+    const targetTimeMs = startDateTime.getTime();
 
-    const forecastUrl =
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
-      `&hourly=temperature_2m,precipitation_probability,windspeed_10m&start_date=${date}&end_date=${date}&timezone=auto`;
-    const forecastResponse = await fetch(forecastUrl);
+    const fetchJson = async (url) => {
+      const r = await fetch(url);
+      if (!r.ok) {
+        return null;
+      }
+      return r.json();
+    };
 
-    if (!forecastResponse.ok) {
-      return res.status(502).json({ message: "Weather forecast service unavailable" });
+    const dayForecastUrl =
+      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&${HOURLY_VARS}` +
+      `&start_date=${dateStr}&end_date=${dateStr}`;
+    const archiveUrl =
+      `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&${HOURLY_VARS}` +
+      `&start_date=${dateStr}&end_date=${dateStr}`;
+    const nearTermUrl =
+      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&${HOURLY_VARS}&forecast_days=7`;
+
+    let bundle = await fetchJson(dayForecastUrl);
+    if (!bundle || !(bundle.hourly?.time || []).length) {
+      bundle = await fetchJson(archiveUrl);
+    }
+    if (!bundle || !(bundle.hourly?.time || []).length) {
+      bundle = await fetchJson(nearTermUrl);
     }
 
-    const forecastData = await forecastResponse.json();
-    const times = forecastData?.hourly?.time || [];
-    const temperatures = forecastData?.hourly?.temperature_2m || [];
-    const precipitationProbabilities = forecastData?.hourly?.precipitation_probability || [];
-    const windSpeeds = forecastData?.hourly?.windspeed_10m || [];
+    if (!bundle) {
+      return res.status(502).json({ message: "Vremenska služba trenutno nije dostupna" });
+    }
+
+    const times = bundle?.hourly?.time || [];
+    const temperatures = bundle?.hourly?.temperature_2m || [];
+    const precipitationProbabilities = bundle?.hourly?.precipitation_probability || [];
+    const windSpeeds = bundle?.hourly?.windspeed_10m || [];
 
     if (times.length === 0) {
-      return res.status(404).json({ message: "No weather forecast available for this date" });
+      return res.status(404).json({ message: "Nema podataka o vremenu za ovu lokaciju" });
     }
 
-    const targetTimeMs = startDateTime.getTime();
-    let closestIndex = 0;
-    let closestDiff = Number.POSITIVE_INFINITY;
-
-    for (let i = 0; i < times.length; i += 1) {
-      const diff = Math.abs(new Date(times[i]).getTime() - targetTimeMs);
-      if (diff < closestDiff) {
-        closestDiff = diff;
-        closestIndex = i;
-      }
-    }
+    const closestIndex = pickClosestHourlyIndex(times, targetTimeMs);
 
     res.status(200).json({
       training: {
@@ -219,6 +330,8 @@ exports.getTrainingWeather = async (req, res) => {
         longitude,
         resolvedLocationName: bestMatch.name,
         resolvedCountry: bestMatch.country || null,
+        venueTimezone: bundle.timezone || null,
+        venueTimezoneAbbreviation: bundle.timezone_abbreviation || null,
       },
     });
   } catch (error) {

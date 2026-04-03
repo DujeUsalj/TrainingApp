@@ -2,15 +2,74 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:5001";
 
+const ACTIVITY_LABELS = {
+  RUNNING: "TRCANJE",
+  WALKING: "HODANJE",
+  IDLE: "MIROVANJE"
+};
+
+const PARTICIPATION_STATUS_LABELS = {
+  REGISTERED: "Prijavljen",
+  ATTENDED: "Prisutan",
+  ABSENT: "Odsutan"
+};
+
+const COACH_ATTENDANCE_STATUSES = ["ATTENDED", "ABSENT"];
+
+function formatHrDateTime(iso) {
+  if (iso == null || iso === "") {
+    return "—";
+  }
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return "—";
+  }
+  return d.toLocaleString("hr-HR", {
+    dateStyle: "short",
+    timeStyle: "short"
+  });
+}
+
+function toGoogleCalendarDateTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return "";
+  }
+  return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function buildGoogleCalendarUrl(training) {
+  const title = training?.title || "Trening";
+  const location = training?.location || "";
+  const details = `Trener: ${
+    training?.coach_first_name || training?.coach_last_name
+      ? `${training?.coach_first_name || ""} ${training?.coach_last_name || ""}`.trim()
+      : "N/A"
+  }`;
+  const start = toGoogleCalendarDateTime(training?.start_time);
+  const end = toGoogleCalendarDateTime(training?.end_time);
+
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: title,
+    location,
+    details
+  });
+  if (start && end) {
+    params.set("dates", `${start}/${end}`);
+  }
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
 const styles = {
   page: {
     minHeight: "100vh",
     width: "100%",
     backgroundColor: "#020617",
-    backgroundImage: "linear-gradient(135deg, #020617 0%, #0f172a 45%, #1d4ed8 100%)",
+    backgroundImage:
+      "radial-gradient(circle at 15% 10%, rgba(59,130,246,0.24), transparent 36%), radial-gradient(circle at 85% 20%, rgba(34,197,94,0.20), transparent 30%), linear-gradient(135deg, #020617 0%, #0f172a 45%, #1d4ed8 100%)",
     padding: "24px",
-    boxSizing: "border-box",
-    border: "8px solid #22c55e"
+    boxSizing: "border-box"
   },
   container: {
     width: "100%",
@@ -31,8 +90,9 @@ const styles = {
     marginBottom: "24px",
     padding: "22px 24px",
     borderRadius: "22px",
-    background: "linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%)",
-    boxShadow: "0 18px 40px rgba(15, 23, 42, 0.18)"
+    background: "linear-gradient(135deg, rgba(15,23,42,0.88) 0%, rgba(29,78,216,0.82) 100%)",
+    boxShadow: "0 20px 42px rgba(2, 6, 23, 0.36)",
+    border: "1px solid rgba(191,219,254,0.25)"
   },
   brandBlock: {
     display: "flex",
@@ -62,17 +122,48 @@ const styles = {
     gap: "10px",
     flexWrap: "wrap"
   },
+  userChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "10px",
+    padding: "8px 12px",
+    borderRadius: "999px",
+    border: "1px solid rgba(191,219,254,0.35)",
+    backgroundColor: "rgba(15, 23, 42, 0.35)"
+  },
+  userAvatar: {
+    width: "34px",
+    height: "34px",
+    borderRadius: "999px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "13px",
+    fontWeight: "700",
+    color: "#0f172a",
+    backgroundColor: "#bfdbfe"
+  },
+  userChipName: {
+    color: "#ffffff",
+    fontSize: "14px",
+    fontWeight: "700",
+    lineHeight: 1.2
+  },
+  userChipRole: {
+    color: "#dbeafe",
+    fontSize: "12px"
+  },
   statsGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     gap: "16px"
   },
   statCard: {
-    backgroundColor: "#eff6ff",
+    backgroundColor: "rgba(239, 246, 255, 0.95)",
     borderRadius: "18px",
     padding: "18px 20px",
     border: "2px solid #93c5fd",
-    boxShadow: "0 18px 38px rgba(2, 6, 23, 0.28)"
+    boxShadow: "0 20px 36px rgba(2, 6, 23, 0.30)"
   },
   statLabel: {
     fontSize: "12px",
@@ -107,11 +198,11 @@ const styles = {
     gap: "20px"
   },
   card: {
-    backgroundColor: "#f8fbff",
+    backgroundColor: "rgba(248, 251, 255, 0.95)",
     borderRadius: "18px",
     padding: "20px",
     border: "2px solid #93c5fd",
-    boxShadow: "0 18px 38px rgba(2, 6, 23, 0.28)"
+    boxShadow: "0 20px 36px rgba(2, 6, 23, 0.30)"
   },
   cardHeader: {
     display: "flex",
@@ -131,6 +222,25 @@ const styles = {
     margin: 0,
     color: "#64748b",
     fontSize: "14px"
+  },
+  authFooter: {
+    marginTop: "18px",
+    textAlign: "center",
+    fontSize: "14px",
+    color: "#64748b",
+    lineHeight: 1.5
+  },
+  authLink: {
+    background: "none",
+    border: "none",
+    padding: 0,
+    margin: 0,
+    cursor: "pointer",
+    color: "#1d4ed8",
+    fontWeight: "700",
+    fontSize: "14px",
+    textDecoration: "underline",
+    fontFamily: "inherit"
   },
   inputGroup: {
     marginBottom: "14px"
@@ -302,6 +412,27 @@ const styles = {
     fontSize: "13px",
     color: "#475569"
   },
+  miniChart: {
+    width: "100%",
+    height: "190px",
+    backgroundColor: "#eff6ff",
+    border: "2px solid #bfdbfe",
+    borderRadius: "14px",
+    padding: "8px",
+    boxSizing: "border-box"
+  },
+  signalGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "8px",
+    marginTop: "8px"
+  },
+  signalTile: {
+    border: "1px solid #bfdbfe",
+    borderRadius: "10px",
+    padding: "8px",
+    backgroundColor: "#eff6ff"
+  },
   sensorGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
@@ -311,12 +442,35 @@ const styles = {
     margin: 0,
     color: "#64748b",
     fontSize: "14px"
+  },
+  participantBox: {
+    marginTop: "12px",
+    padding: "12px",
+    borderRadius: "12px",
+    border: "1px solid #93c5fd",
+    backgroundColor: "#eff6ff"
+  },
+  participantRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "8px",
+    justifyContent: "space-between",
+    padding: "10px 0",
+    borderBottom: "1px solid #bfdbfe"
   }
 };
 
 function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [authMode, setAuthMode] = useState("login");
+  const [regFirstName, setRegFirstName] = useState("");
+  const [regLastName, setRegLastName] = useState("");
+  const [regEmail, setRegEmail] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [regPasswordConfirm, setRegPasswordConfirm] = useState("");
+  const [regRole, setRegRole] = useState("ATHLETE");
   const [message, setMessage] = useState("");
   const [trainings, setTrainings] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
@@ -326,10 +480,20 @@ function App() {
   const [showFinishedOnly, setShowFinishedOnly] = useState(true);
   const [historySort, setHistorySort] = useState("desc");
   const [userRole, setUserRole] = useState(localStorage.getItem("userRole") || "");
+  const [userEmail, setUserEmail] = useState(localStorage.getItem("userEmail") || "");
+  const [userFirstName, setUserFirstName] = useState(localStorage.getItem("userFirstName") || "");
+  const [userLastName, setUserLastName] = useState(localStorage.getItem("userLastName") || "");
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+  const [userId, setUserId] = useState(() => {
+    const raw = localStorage.getItem("userId");
+    if (raw == null || raw === "") {
+      return null;
+    }
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  });
   const [isLiveCapture, setIsLiveCapture] = useState(false);
   const [liveSampleCount, setLiveSampleCount] = useState(0);
-  const [weatherByTrainingId, setWeatherByTrainingId] = useState({});
-  const [weatherLoadingId, setWeatherLoadingId] = useState(null);
   const [viewportWidth, setViewportWidth] = useState(
     typeof window !== "undefined" ? window.innerWidth : 1280
   );
@@ -344,12 +508,75 @@ function App() {
   });
   const liveIntervalRef = useRef(null);
 
+  const normalizedRole = String(userRole).trim().toUpperCase();
+  const isCoach = normalizedRole === "COACH" || normalizedRole === "ADMIN";
+  const userDisplayName =
+    `${String(userFirstName || "").trim()} ${String(userLastName || "").trim()}`.trim() ||
+    (userEmail ? userEmail.split("@")[0] : "Korisnik");
+  const userInitials = userDisplayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("") || "U";
+  const avatarUrl = `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(userDisplayName)}`;
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [userDisplayName]);
+
+  const fetchMe = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+
+      if (res.ok && data.user?.role) {
+        if (data.token) {
+          localStorage.setItem("token", data.token);
+        }
+        localStorage.setItem("userRole", data.user.role);
+        setUserRole(data.user.role);
+        if (data.user.email) {
+          localStorage.setItem("userEmail", data.user.email);
+          setUserEmail(data.user.email);
+        }
+        localStorage.setItem("userFirstName", data.user.firstName || "");
+        localStorage.setItem("userLastName", data.user.lastName || "");
+        setUserFirstName(data.user.firstName || "");
+        setUserLastName(data.user.lastName || "");
+        if (data.user.id != null) {
+          localStorage.setItem("userId", String(data.user.id));
+          setUserId(Number(data.user.id));
+        }
+      }
+    } catch (error) {
+      // tiho ignoriraj — korisnik i dalje moze raditi s postojecim tokenom
+    }
+  };
+
+  useEffect(() => {
+    fetchTrainings();
+  }, []);
+
   useEffect(() => {
     if (isLoggedIn) {
+      fetchMe();
       fetchTrainings();
-      fetchMySessions();
     }
   }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (isLoggedIn && !isCoach) {
+      fetchMySessions();
+    }
+  }, [isLoggedIn, isCoach]);
 
   useLayoutEffect(() => {
     document.documentElement.style.background = "#020617";
@@ -396,6 +623,13 @@ function App() {
       return { backgroundColor: "#e5e7eb", color: "#374151" };
     }
     return { backgroundColor: "#dbeafe", color: "#1d4ed8" };
+  };
+
+  const getActivityLabel = (activity) => {
+    if (!activity) {
+      return "NEMA PODATAKA";
+    }
+    return ACTIVITY_LABELS[activity] || activity;
   };
 
   const statusBadgeStyle = useMemo(() => {
@@ -459,44 +693,132 @@ function App() {
   const isMobile = viewportWidth < 768;
   const isTablet = viewportWidth >= 768 && viewportWidth < 1100;
 
-  const handleLogin = async () => {
+  const [newTraining, setNewTraining] = useState({
+    title: "",
+    description: "",
+    location: "",
+    startTime: "",
+    endTime: ""
+  });
+  const [coachPanelTrainingId, setCoachPanelTrainingId] = useState(null);
+  const [participantsByTrainingId, setParticipantsByTrainingId] = useState({});
+  const [participantsLoadingId, setParticipantsLoadingId] = useState(null);
+  const finishedSessions = displayedSessions.filter((s) => s.avg_acceleration && s.max_acceleration).slice(0, 6);
+  const chartMax =
+    finishedSessions.length > 0
+      ? Math.max(
+          ...finishedSessions.map((s) => Math.max(Number(s.avg_acceleration), Number(s.max_acceleration)))
+        )
+      : 1;
+
+  const applyLoginSuccess = (data) => {
+    setMessage("Prijava uspješna");
+    localStorage.setItem("token", data.token);
+    if (data.user?.role) {
+      localStorage.setItem("userRole", data.user.role);
+      setUserRole(data.user.role);
+    }
+    if (data.user?.email) {
+      localStorage.setItem("userEmail", data.user.email);
+      setUserEmail(data.user.email);
+    }
+    localStorage.setItem("userFirstName", data.user?.firstName || "");
+    localStorage.setItem("userLastName", data.user?.lastName || "");
+    setUserFirstName(data.user?.firstName || "");
+    setUserLastName(data.user?.lastName || "");
+    if (data.user?.id != null) {
+      localStorage.setItem("userId", String(data.user.id));
+      setUserId(Number(data.user.id));
+    }
+    setIsLoggedIn(true);
+    fetchTrainings();
+  };
+
+  const loginWithCredentials = async (loginEmail, loginPassword) => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ email, password })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
       });
-
       const data = await res.json();
-
       if (res.ok) {
-        setMessage("Login uspješan");
-        localStorage.setItem("token", data.token);
-        if (data.user?.role) {
-          localStorage.setItem("userRole", data.user.role);
-          setUserRole(data.user.role);
-        }
-        setIsLoggedIn(true);
-      } else {
-        setIsLoggedIn(false);
-        setMessage(data.message);
+        applyLoginSuccess(data);
+        return true;
       }
+      setIsLoggedIn(false);
+      setMessage(data.message || "Prijava nije uspjela");
+      return false;
     } catch (error) {
       setIsLoggedIn(false);
+      const detail = error?.message ? String(error.message) : "";
+      setMessage(
+        detail
+          ? `Greška u konekciji (${detail}). Provjeri da server radi i da VITE_API_BASE_URL u client/.env* pokazuje na pravi host:port.`
+          : "Greška u konekciji"
+      );
+      return false;
+    }
+  };
+
+  const handleLogin = async () => {
+    await loginWithCredentials(email.trim(), password);
+  };
+
+  const handleRegister = async () => {
+    if (!regFirstName.trim() || !regLastName.trim() || !regEmail.trim() || !regPassword) {
+      setMessage("Popuni sva polja registracije");
+      return;
+    }
+    if (regPassword.length < 6) {
+      setMessage("Lozinka mora imati najmanje 6 znakova");
+      return;
+    }
+    if (regPassword !== regPasswordConfirm) {
+      setMessage("Lozinke se ne podudaraju");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: regFirstName.trim(),
+          lastName: regLastName.trim(),
+          email: regEmail.trim(),
+          password: regPassword,
+          role: regRole
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMessage(data.message || "Registracija nije uspjela");
+        return;
+      }
+
+      setEmail(regEmail.trim());
+      setPassword(regPassword);
+      setAuthMode("login");
+      setRegPassword("");
+      setRegPasswordConfirm("");
+      const ok = await loginWithCredentials(regEmail.trim(), regPassword);
+      if (ok) {
+        setMessage("Registracija i prijava uspješne");
+      }
+    } catch (error) {
       setMessage("Greška u konekciji");
     }
   };
 
   const fetchTrainings = async () => {
     const token = localStorage.getItem("token");
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/trainings`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        headers
       });
 
       const data = await res.json();
@@ -518,6 +840,10 @@ function App() {
 
     localStorage.removeItem("token");
     localStorage.removeItem("userRole");
+    localStorage.removeItem("userEmail");
+    localStorage.removeItem("userFirstName");
+    localStorage.removeItem("userLastName");
+    localStorage.removeItem("userId");
     setIsLoggedIn(false);
     setTrainings([]);
     setCurrentSessionId(null);
@@ -525,36 +851,21 @@ function App() {
     setLastSessionResult(null);
     setMySessions([]);
     setUserRole("");
-    setWeatherByTrainingId({});
-    setWeatherLoadingId(null);
+    setUserEmail("");
+    setUserFirstName("");
+    setUserLastName("");
+    setUserId(null);
+    setCoachPanelTrainingId(null);
+    setParticipantsByTrainingId({});
+    setNewTraining({
+      title: "",
+      description: "",
+      location: "",
+      startTime: "",
+      endTime: ""
+    });
     setMessage("Odjavljen si");
-  };
-
-  const fetchTrainingWeather = async (trainingId) => {
-    const token = localStorage.getItem("token");
-    setWeatherLoadingId(trainingId);
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/trainings/${trainingId}/weather`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      const data = await res.json();
-
-      if (res.ok) {
-        setWeatherByTrainingId((prev) => ({
-          ...prev,
-          [trainingId]: data.weather
-        }));
-      } else {
-        setMessage(data.message || "Greška pri dohvaćanju vremena");
-      }
-    } catch (error) {
-      setMessage("Greška u konekciji");
-    } finally {
-      setWeatherLoadingId(null);
-    }
+    fetchTrainings();
   };
 
   const fetchMySessions = async () => {
@@ -581,7 +892,7 @@ function App() {
 
   const exportSessionsToCsv = () => {
     if (displayedSessions.length === 0) {
-      setMessage("Nema sessiona za export");
+      setMessage("Nema sesija za izvoz");
       return;
     }
 
@@ -632,7 +943,7 @@ function App() {
 
   const exportSelectedSessionToCsv = () => {
     if (!lastSessionResult?.session) {
-      setMessage("Nema odabranog sessiona za export");
+      setMessage("Nema odabrane sesije za izvoz");
       return;
     }
 
@@ -677,7 +988,7 @@ function App() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    setMessage("Export odabranog sessiona uspješan");
+    setMessage("Izvoz odabrane sesije uspješan");
   };
 
   const fetchSessionResult = async (sessionId) => {
@@ -702,7 +1013,7 @@ function App() {
         return data;
       }
 
-      setMessage(data.message || "Greška pri dohvaćanju rezultata sessiona");
+      setMessage(data.message || "Greška pri dohvaćanju rezultata sesije");
       return null;
     } catch (error) {
       setMessage("Greška u konekciji");
@@ -710,16 +1021,17 @@ function App() {
     }
   };
 
-  const sendSensorData = async (sensorPayload, label, silent = false) => {
+  const sendSensorData = async (sensorPayload, label, silent = false, sessionIdOverride = null) => {
     const token = localStorage.getItem("token");
+    const activeSessionId = sessionIdOverride ?? currentSessionId;
 
-    if (!currentSessionId) {
-      setMessage("Nema aktivne session");
+    if (!activeSessionId) {
+      setMessage("Nema aktivne sesije");
       return;
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/sensors/${currentSessionId}/data`, {
+      const res = await fetch(`${API_BASE_URL}/api/sensors/${activeSessionId}/data`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -759,13 +1071,35 @@ function App() {
 
       if (res.ok) {
         setCurrentSessionId(data.session.id);
-        setMessage(`Session started (ID: ${data.session.id})`);
+        setMessage(`Snimanje senzorima započelo (sesija ID: ${data.session.id})`);
+        return data.session.id;
       } else {
         setMessage(data.message);
+        return null;
       }
     } catch (error) {
       setMessage("Greška u konekciji");
+      return null;
     }
+  };
+
+  const startSensorsForTraining = async (trainingId) => {
+    let sessionId = currentSessionId;
+    if (!sessionId) {
+      sessionId = await startSession(trainingId);
+      if (!sessionId) {
+        return;
+      }
+    }
+    await startLiveSensorCapture(sessionId);
+  };
+
+  const stopSensorsForTraining = async () => {
+    if (!currentSessionId) {
+      setMessage("Nema aktivne sesije za zaustaviti.");
+      return;
+    }
+    await finishSession();
   };
 
   const sendRunningData = async () => {
@@ -833,14 +1167,16 @@ function App() {
     };
   };
 
-  const startLiveSensorCapture = async () => {
-    if (!currentSessionId) {
-      setMessage("Prvo pokreni session pa onda live capture");
+  const startLiveSensorCapture = async (sessionIdOverride = null) => {
+    const activeSessionId = sessionIdOverride ?? currentSessionId;
+
+    if (!activeSessionId) {
+      setMessage("Prvo pokreni sesiju pa zatim uključi pracenje uzivo");
       return;
     }
 
     if (isLiveCapture) {
-      setMessage("Live sensor capture je već aktivan");
+      setMessage("Pracenje senzora uzivo je vec aktivno");
       return;
     }
 
@@ -864,11 +1200,11 @@ function App() {
       setLiveSampleCount(0);
       window.addEventListener("devicemotion", handleDeviceMotion);
       liveIntervalRef.current = setInterval(async () => {
-        await sendSensorData(liveSensorRef.current, "Live", true);
+        await sendSensorData(liveSensorRef.current, "Live", true, activeSessionId);
         setLiveSampleCount((prev) => prev + 1);
       }, 300);
       setIsLiveCapture(true);
-      setMessage("Live sensor capture pokrenut");
+      setMessage("Pracenje senzora uzivo pokrenuto");
     } catch (error) {
       setMessage("Greška pri pokretanju live senzora");
     }
@@ -878,7 +1214,7 @@ function App() {
     const token = localStorage.getItem("token");
 
     if (!currentSessionId) {
-      setMessage("Nema aktivne session");
+      setMessage("Nema aktivne sesije");
       return;
     }
 
@@ -899,7 +1235,7 @@ function App() {
       const data = await res.json();
 
       if (res.ok) {
-        setMessage(`Session finished: ${data.activity}`);
+        setMessage(`Sesija zavrsena: ${getActivityLabel(data.activity)}`);
         setLastActivity(data.activity);
         await fetchSessionResult(sessionId);
         await fetchMySessions();
@@ -947,8 +1283,137 @@ function App() {
 
       if (res.ok) {
         setMessage("Uspješno si prijavljen na trening");
+        fetchTrainings();
       } else {
         setMessage(data.message);
+      }
+    } catch (error) {
+      setMessage("Greška u konekciji");
+    }
+  };
+
+  const unregisterFromTraining = async (trainingId) => {
+    const token = localStorage.getItem("token");
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/trainings/${trainingId}/register`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setMessage("Uspješno si odjavljen s treninga");
+        fetchTrainings();
+      } else {
+        setMessage(data.message || "Greška pri odjavi s treninga");
+      }
+    } catch (error) {
+      setMessage("Greška u konekciji");
+    }
+  };
+
+  const fetchTrainingParticipants = async (trainingId) => {
+    const token = localStorage.getItem("token");
+    const idNum = Number(trainingId);
+    setParticipantsLoadingId(idNum);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/trainings/${idNum}/participants`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setParticipantsByTrainingId((prev) => ({
+          ...prev,
+          [idNum]: data.participants || []
+        }));
+      } else {
+        setMessage(data.message || "Greška pri dohvaćanju sudionika");
+      }
+    } catch (error) {
+      setMessage("Greška u konekciji");
+    } finally {
+      setParticipantsLoadingId(null);
+    }
+  };
+
+  const toggleCoachParticipantsPanel = (trainingId) => {
+    const idNum = Number(trainingId);
+    if (coachPanelTrainingId === idNum) {
+      setCoachPanelTrainingId(null);
+      return;
+    }
+    setCoachPanelTrainingId(idNum);
+    fetchTrainingParticipants(idNum);
+  };
+
+  const createTraining = async () => {
+    if (!newTraining.title.trim() || !newTraining.location.trim() || !newTraining.startTime || !newTraining.endTime) {
+      setMessage("Popuni naslov, lokaciju, početak i kraj treninga.");
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/trainings`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          title: newTraining.title.trim(),
+          description: newTraining.description.trim() || "",
+          location: newTraining.location.trim(),
+          startTime: new Date(newTraining.startTime).toISOString(),
+          endTime: new Date(newTraining.endTime).toISOString()
+        })
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setMessage("Trening je kreiran.");
+        setNewTraining({
+          title: "",
+          description: "",
+          location: "",
+          startTime: "",
+          endTime: ""
+        });
+        fetchTrainings();
+      } else {
+        setMessage(data.message || "Neuspjelo kreiranje treninga");
+      }
+    } catch (error) {
+      setMessage("Greška u konekciji");
+    }
+  };
+
+  const updateParticipationStatus = async (participationId, status, trainingId) => {
+    const token = localStorage.getItem("token");
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/trainings/participations/${participationId}/status`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ status })
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setMessage("Status sudjelovanja ažuriran.");
+        fetchTrainingParticipants(trainingId);
+      } else {
+        setMessage(data.message || "Greška pri ažuriranju statusa");
       }
     } catch (error) {
       setMessage("Greška u konekciji");
@@ -960,29 +1425,48 @@ function App() {
       <div style={{ ...styles.container, gap: isMobile ? "12px" : "20px" }}>
         <div style={{ ...styles.topBar, padding: isMobile ? "14px" : "22px 24px", borderRadius: isMobile ? "14px" : "22px", marginBottom: isMobile ? "12px" : "24px" }}>
           <div style={styles.brandBlock}>
-            <span style={styles.overline}>Training Monitor Platform</span>
-            <h1 style={{ ...styles.title, fontSize: isMobile ? "24px" : "34px" }}>Dashboard</h1>
+            <span style={styles.overline}>Platforma Za Pracenje Treninga</span>
+            <h1 style={{ ...styles.title, fontSize: isMobile ? "24px" : "34px" }}>
+              {isLoggedIn ? userDisplayName : "Dobrodošao"}
+            </h1>
             <p style={{ ...styles.subtitle, fontSize: isMobile ? "13px" : "15px" }}>
-              Pregled korisnika, treninga i session kontrole na jednom mjestu.
+              {isLoggedIn
+                ? "Pregled treninga, sudjelovanja i senzora na jednom mjestu."
+                : "Prijavi se za pregled treninga i upravljanje aktivnostima."}
             </p>
           </div>
 
-          <div style={{ ...styles.topActions, width: isMobile ? "100%" : "auto" }}>
-            <button
-              style={getButtonStyle(!isLoggedIn, "secondary")}
-              onClick={fetchTrainings}
-              disabled={!isLoggedIn}
-            >
-              Osvježi treninge
-            </button>
-            {isLoggedIn && (
-              <button style={getButtonStyle(false, "danger")} onClick={logout}>
-                Logout
+          {isLoggedIn && (
+            <div style={{ ...styles.topActions, width: isMobile ? "100%" : "auto" }}>
+              <div style={styles.userChip}>
+                {!avatarLoadFailed ? (
+                  <img
+                    src={avatarUrl}
+                    alt={userDisplayName}
+                    style={styles.userAvatar}
+                    onError={() => setAvatarLoadFailed(true)}
+                  />
+                ) : (
+                  <span style={styles.userAvatar}>{userInitials}</span>
+                )}
+                <div>
+                  <div style={styles.userChipName}>{userDisplayName}</div>
+                  <div style={styles.userChipRole}>{normalizedRole || "Korisnik"}</div>
+                </div>
+              </div>
+              <button
+                style={getButtonStyle(false, "secondary")}
+                onClick={fetchTrainings}
+              >
+                Osvježi treninge
               </button>
-            )}
-          </div>
+              <button style={getButtonStyle(false, "danger")} onClick={logout}>
+                Odjava
+              </button>
+            </div>
+          )}
         </div>
-
+        {isLoggedIn && (
         <div
           style={{
             ...styles.statsGrid,
@@ -995,20 +1479,25 @@ function App() {
         >
           <div style={{ ...styles.statCard, padding: isMobile ? "14px" : "18px 20px", borderRadius: isMobile ? "14px" : "18px" }}>
             <div style={styles.statLabel}>Status korisnika</div>
-            <div style={{ ...styles.statValue, fontSize: isMobile ? "22px" : "28px" }}>{isLoggedIn ? "Online" : "Offline"}</div>
+            <div style={{ ...styles.statValue, fontSize: isMobile ? "22px" : "28px" }}>{isLoggedIn ? "Prijavljen" : "Odjavljen"}</div>
             <div style={styles.statNote}>
               {isLoggedIn ? "Korisnik je uspješno prijavljen." : "Potrebna je prijava za rad."}
             </div>
             <div style={{ ...styles.statNote, marginTop: "6px" }}>
+              Email: {userEmail || "N/A"}
+            </div>
+            <div style={{ ...styles.statNote, marginTop: "4px" }}>
               Uloga: {userRole || "N/A"}
             </div>
           </div>
 
+          {!isCoach && (
           <div style={{ ...styles.statCard, padding: isMobile ? "14px" : "18px 20px", borderRadius: isMobile ? "14px" : "18px" }}>
-            <div style={styles.statLabel}>Aktivna session</div>
+            <div style={styles.statLabel}>Aktivna sesija</div>
             <div style={{ ...styles.statValue, fontSize: isMobile ? "22px" : "28px" }}>{currentSessionId || "Nema"}</div>
-            <div style={styles.statNote}>Session ID za trenutno praćenje aktivnosti.</div>
+            <div style={styles.statNote}>ID sesije za trenutno praćenje aktivnosti.</div>
           </div>
+          )}
 
           <div style={{ ...styles.statCard, padding: isMobile ? "14px" : "18px 20px", borderRadius: isMobile ? "14px" : "18px" }}>
             <div style={styles.statLabel}>Dostupni treninzi</div>
@@ -1016,6 +1505,7 @@ function App() {
             <div style={styles.statNote}>Ukupan broj treninga dohvaćenih iz backend-a.</div>
           </div>
 
+          {!isCoach && (
           <div style={{ ...styles.statCard, padding: isMobile ? "14px" : "18px 20px", borderRadius: isMobile ? "14px" : "18px" }}>
             <div style={styles.statLabel}>Zadnja aktivnost</div>
             <div style={styles.row}>
@@ -1027,26 +1517,97 @@ function App() {
               Rezultat zadnje završene klasifikacije aktivnosti.
             </div>
           </div>
+          )}
         </div>
+        )}
 
         <div
           style={{
             ...styles.mainGrid,
-            gridTemplateColumns: isMobile || isTablet ? "1fr" : "1.6fr 1fr",
+            gridTemplateColumns: isLoggedIn
+              ? (isMobile || isTablet ? "1fr" : "1.6fr 1fr")
+              : "1fr",
             gap: isMobile ? "12px" : "20px"
           }}
         >
+          {isLoggedIn && (
           <div style={styles.leftColumn}>
+            {isLoggedIn && isCoach && (
+              <div style={{ ...styles.card, padding: isMobile ? "14px" : "20px", borderRadius: isMobile ? "14px" : "18px", border: "2px solid #22c55e" }}>
+                <div style={styles.cardHeader}>
+                  <div>
+                    <h2 style={styles.cardTitle}>Trener: novi trening</h2>
+                    <p style={styles.cardText}>Kreiranje treninga vidljivo svim prijavljenim korisnicima.</p>
+                  </div>
+                </div>
+
+                <div style={styles.inputGroup}>
+                  <label style={styles.label}>Naslov</label>
+                  <input
+                    style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                    placeholder="Npr. intervali na stadionu"
+                    value={newTraining.title}
+                    onChange={(e) => setNewTraining((prev) => ({ ...prev, title: e.target.value }))}
+                  />
+                </div>
+                <div style={styles.inputGroup}>
+                  <label style={styles.label}>Opis (opcionalno)</label>
+                  <input
+                    style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                    placeholder="Kratki opis"
+                    value={newTraining.description}
+                    onChange={(e) => setNewTraining((prev) => ({ ...prev, description: e.target.value }))}
+                  />
+                </div>
+                <div style={styles.inputGroup}>
+                  <label style={styles.label}>Lokacija</label>
+                  <input
+                    style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                    placeholder="Npr. Zagreb"
+                    value={newTraining.location}
+                    onChange={(e) => setNewTraining((prev) => ({ ...prev, location: e.target.value }))}
+                  />
+                </div>
+                <div style={{ ...styles.row, flexDirection: isMobile ? "column" : "row" }}>
+                  <div style={{ ...styles.inputGroup, flex: 1, marginBottom: 0, width: isMobile ? "100%" : "auto" }}>
+                    <label style={styles.label}>Početak</label>
+                    <input
+                      type="datetime-local"
+                      style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                      value={newTraining.startTime}
+                      onChange={(e) => setNewTraining((prev) => ({ ...prev, startTime: e.target.value }))}
+                    />
+                  </div>
+                  <div style={{ ...styles.inputGroup, flex: 1, marginBottom: 0, width: isMobile ? "100%" : "auto" }}>
+                    <label style={styles.label}>Kraj</label>
+                    <input
+                      type="datetime-local"
+                      style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                      value={newTraining.endTime}
+                      onChange={(e) => setNewTraining((prev) => ({ ...prev, endTime: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <button type="button" style={getButtonStyle(false, "primary")} onClick={createTraining}>
+                  Spremi trening
+                </button>
+              </div>
+            )}
+
             <div style={{ ...styles.card, padding: isMobile ? "14px" : "20px", borderRadius: isMobile ? "14px" : "18px" }}>
               <div style={styles.cardHeader}>
                 <div>
                   <h2 style={styles.cardTitle}>Aktivni treninzi</h2>
-                  <p style={styles.cardText}>Pregled treninga i akcije za registraciju i pokretanje sessiona.</p>
                 </div>
               </div>
 
               {trainings.length === 0 ? (
-                <p style={styles.emptyText}>Treninzi još nisu učitani.</p>
+                <p style={styles.emptyText}>
+                  {isLoggedIn
+                    ? "Trenutno nema treninga u bazi. Trener može dodati novi gore."
+                    : "Trenutno nema treninga u bazi. Prijavi se za prijavu na trening i osobni status."}
+                </p>
               ) : (
                 <ul style={styles.trainingList}>
                   {trainings.map((t) => (
@@ -1055,6 +1616,17 @@ function App() {
                         <div>
                           <h3 style={styles.trainingTitle}>{t.title}</h3>
                           <p style={styles.trainingMeta}>{t.location}</p>
+                          <p style={{ ...styles.trainingMeta, marginTop: "6px", color: "#334155", fontWeight: "600" }}>
+                            Trener:{" "}
+                            {t.coach_first_name || t.coach_last_name
+                              ? `${t.coach_first_name || ""} ${t.coach_last_name || ""}`.trim()
+                              : t.coach_id != null
+                                ? `ID ${t.coach_id}`
+                                : "Nije upisan"}
+                          </p>
+                          <p style={{ ...styles.trainingMeta, marginTop: "8px", color: "#1e3a5f", fontWeight: "600", lineHeight: 1.5 }}>
+                            Termin: {formatHrDateTime(t.start_time)} → {formatHrDateTime(t.end_time)}
+                          </p>
                         </div>
                         <span style={{ ...styles.badge, backgroundColor: "#dbeafe", color: "#1d4ed8" }}>
                           ID {t.id}
@@ -1062,37 +1634,153 @@ function App() {
                       </div>
 
                       <div style={{ ...styles.row, flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center" }}>
+                        {!isCoach && (
+                          t.my_participation_id != null && t.my_participation_id !== "" ? (
                         <button
+                          type="button"
+                          style={getButtonStyle(!isLoggedIn, "danger")}
+                          onClick={() => unregisterFromTraining(t.id)}
+                          disabled={!isLoggedIn}
+                        >
+                          Odjavi se
+                        </button>
+                          ) : (
+                        <button
+                          type="button"
                           style={getButtonStyle(!isLoggedIn, "primary")}
                           onClick={() => registerForTraining(t.id)}
                           disabled={!isLoggedIn}
                         >
-                          Prijavi korisnika
+                          Prijavi se
                         </button>
-                        <button
-                          style={getButtonStyle(!isLoggedIn || !!currentSessionId, "soft")}
-                          onClick={() => startSession(t.id)}
-                          disabled={!isLoggedIn || !!currentSessionId}
+                          )
+                        )}
+                        {!isCoach &&
+                          t.my_participation_id != null &&
+                          t.my_participation_id !== "" && (
+                          <span
+                            style={{
+                              ...styles.badge,
+                              backgroundColor: "#e0e7ff",
+                              color: "#3730a3",
+                              alignSelf: isMobile ? "flex-start" : "center"
+                            }}
+                          >
+                            Tvoj status:{" "}
+                            {PARTICIPATION_STATUS_LABELS[t.my_participation_status] ||
+                              PARTICIPATION_STATUS_LABELS.REGISTERED}
+                          </span>
+                        )}
+                        {!isCoach &&
+                          t.my_participation_id != null &&
+                          t.my_participation_id !== "" && (
+                          <button
+                            type="button"
+                            style={getButtonStyle(!isLoggedIn || isLiveCapture, "soft")}
+                            onClick={() => startSensorsForTraining(t.id)}
+                            disabled={!isLoggedIn || isLiveCapture}
+                          >
+                            Pokreni senzore
+                          </button>
+                        )}
+                        {!isCoach && (
+                          <button
+                            type="button"
+                            style={getButtonStyle(!currentSessionId, "danger")}
+                            onClick={stopSensorsForTraining}
+                            disabled={!currentSessionId}
+                          >
+                            Zaustavi senzore
+                          </button>
+                        )}
+                        <a
+                          href={buildGoogleCalendarUrl(t)}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            ...getButtonStyle(false, "secondary"),
+                            textDecoration: "none",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center"
+                          }}
                         >
-                          Pokreni session
-                        </button>
-                        <button
-                          style={getButtonStyle(!isLoggedIn || weatherLoadingId === t.id, "secondary")}
-                          onClick={() => fetchTrainingWeather(t.id)}
-                          disabled={!isLoggedIn || weatherLoadingId === t.id}
-                        >
-                          {weatherLoadingId === t.id ? "Dohvaćam..." : "Vrijeme"}
-                        </button>
+                          Dodaj u Google Kalendar
+                        </a>
                       </div>
 
-                      {weatherByTrainingId[t.id] && (
-                        <div style={{ ...styles.cardText, marginTop: "10px" }}>
-                          {`Prognoza (${weatherByTrainingId[t.id].forecastTime ? new Date(weatherByTrainingId[t.id].forecastTime).toLocaleString() : "N/A"}): `}
-                          {`${weatherByTrainingId[t.id].temperatureC !== null && weatherByTrainingId[t.id].temperatureC !== undefined
-                            ? Number(weatherByTrainingId[t.id].temperatureC).toFixed(1)
-                            : "N/A"} C, `}
-                          {`oborine ${weatherByTrainingId[t.id].precipitationProbability ?? "N/A"}%, `}
-                          {`vjetar ${weatherByTrainingId[t.id].windSpeedKmh ?? "N/A"} km/h`}
+                      {isCoach && (
+                        <div style={{ marginTop: "12px" }}>
+                          <button
+                            type="button"
+                            style={getButtonStyle(false, "secondary")}
+                            onClick={() => toggleCoachParticipantsPanel(t.id)}
+                          >
+                            {coachPanelTrainingId === Number(t.id) ? "Sakrij sudionike" : "Sudionici"}
+                          </button>
+                          {coachPanelTrainingId === Number(t.id) && (
+                            <div style={styles.participantBox}>
+                              <p style={{ ...styles.cardText, marginBottom: "10px", fontSize: "13px" }}>
+                                &quot;Prijavljen&quot; = prijavio se u aplikaciji. Nakon treninga označi samo{" "}
+                                <strong>Prisutan</strong> ili <strong>Odsutan</strong>.
+                              </p>
+                              {participantsLoadingId === Number(t.id) ? (
+                                <p style={styles.emptyText}>Učitavanje…</p>
+                              ) : (participantsByTrainingId[Number(t.id)] || []).length === 0 ? (
+                                <p style={styles.emptyText}>Još nema prijava na ovaj trening.</p>
+                              ) : (
+                                (participantsByTrainingId[Number(t.id)] || []).map((p, idx, arr) => {
+                                  const currentStatus = p.status || "REGISTERED";
+                                  const isLast = idx === arr.length - 1;
+
+                                  return (
+                                    <div
+                                      key={p.id}
+                                      style={{
+                                        ...styles.participantRow,
+                                        borderBottom: isLast ? "none" : styles.participantRow.borderBottom
+                                      }}
+                                    >
+                                      <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                                        <div style={{ fontWeight: "700", color: "#111827" }}>
+                                          {p.first_name} {p.last_name}
+                                        </div>
+                                        <div style={{ fontSize: "13px", color: "#64748b" }}>{p.email}</div>
+                                        <span
+                                          style={{
+                                            ...styles.badge,
+                                            backgroundColor: "#e0e7ff",
+                                            color: "#3730a3",
+                                            marginTop: "6px"
+                                          }}
+                                        >
+                                          {PARTICIPATION_STATUS_LABELS[currentStatus] || currentStatus}
+                                        </span>
+                                      </div>
+                                      <div
+                                        style={{
+                                          ...styles.row,
+                                          flexDirection: isMobile ? "column" : "row",
+                                          flex: "1 1 220px"
+                                        }}
+                                      >
+                                        {COACH_ATTENDANCE_STATUSES.map((st) => (
+                                          <button
+                                            key={st}
+                                            type="button"
+                                            style={getButtonStyle(false, currentStatus === st ? "primary" : "secondary")}
+                                            onClick={() => updateParticipationStatus(p.id, st, t.id)}
+                                          >
+                                            {PARTICIPATION_STATUS_LABELS[st]}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                     </li>
@@ -1101,267 +1789,166 @@ function App() {
               )}
             </div>
 
-            <div style={{ ...styles.card, padding: isMobile ? "14px" : "20px", borderRadius: isMobile ? "14px" : "18px" }}>
-              <div style={styles.cardHeader}>
-                <div>
-                  <h2 style={styles.cardTitle}>Povijest sessiona</h2>
-                  <p style={styles.cardText}>Zadnjih 10 sessiona prijavljenog korisnika.</p>
-                </div>
-                <div style={{ ...styles.row, flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center" }}>
-                  <button
-                    style={getButtonStyle(!isLoggedIn, "secondary")}
-                    onClick={() => setShowFinishedOnly((prev) => !prev)}
-                    disabled={!isLoggedIn}
-                  >
-                    {showFinishedOnly ? "Prikaži sve" : "Samo završene"}
-                  </button>
-                  <button
-                    style={getButtonStyle(!isLoggedIn, "secondary")}
-                    onClick={() => setHistorySort((prev) => (prev === "desc" ? "asc" : "desc"))}
-                    disabled={!isLoggedIn}
-                  >
-                    {historySort === "desc" ? "Najnovije" : "Najstarije"}
-                  </button>
-                  <button
-                    style={getButtonStyle(!isLoggedIn, "secondary")}
-                    onClick={fetchMySessions}
-                    disabled={!isLoggedIn}
-                  >
-                    Osvježi
-                  </button>
-                  <button
-                    style={getButtonStyle(!isLoggedIn || displayedSessions.length === 0, "secondary")}
-                    onClick={exportSessionsToCsv}
-                    disabled={!isLoggedIn || displayedSessions.length === 0}
-                  >
-                    Export CSV
-                  </button>
-                </div>
-              </div>
-
-              {displayedSessions.length === 0 ? (
-                <p style={styles.emptyText}>
-                  {showFinishedOnly
-                    ? "Nema završenih sessiona za prikaz."
-                    : "Nema sessiona za prikaz."}
-                </p>
-              ) : (
-                <ul style={styles.historyList}>
-                  {displayedSessions.map((s) => (
-                    <li
-                      key={s.id}
-                      style={{
-                        ...styles.historyItem,
-                        ...(lastSessionResult?.session?.id === s.id
-                          ? { border: "2px solid #2563eb", boxShadow: "0 0 0 2px rgba(37, 99, 235, 0.2)" }
-                          : {})
-                      }}
-                      onClick={() => fetchSessionResult(s.id)}
-                      title={`Učitaj detalje sessiona #${s.id}`}
-                    >
-                      <div style={styles.historyTop}>
-                        <p style={styles.historyTitle}>{s.training_title || `Training #${s.training_id}`}</p>
-                        <span style={{ ...styles.badge, ...getActivityBadgeStyle(s.detected_activity) }}>
-                          {s.detected_activity || "IN_PROGRESS"}
-                        </span>
-                      </div>
-                      <p style={styles.historyMeta}>
-                        Session #{s.id} • Avg: {s.avg_acceleration ? Number(s.avg_acceleration).toFixed(2) : "N/A"} • Max:{" "}
-                        {s.max_acceleration ? Number(s.max_acceleration).toFixed(2) : "N/A"}
-                      </p>
-                      <p style={{ ...styles.historyMeta, marginTop: "4px" }}>
-                        Start: {s.started_at ? new Date(s.started_at).toLocaleString() : "N/A"} • End:{" "}
-                        {s.ended_at ? new Date(s.ended_at).toLocaleString() : "N/A"}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
           </div>
+          )}
 
           <div style={styles.rightColumn}>
             <div style={{ ...styles.card, padding: isMobile ? "14px" : "20px", borderRadius: isMobile ? "14px" : "18px" }}>
               <div style={styles.cardHeader}>
                 <div>
-                  <h2 style={styles.cardTitle}>Prijava korisnika</h2>
-                  <p style={styles.cardText}>Autentifikacija za pristup treninzima i senzorskim funkcijama.</p>
+                  <h2 style={styles.cardTitle}>
+                    {isLoggedIn ? "Račun" : authMode === "login" ? "Prijava" : "Registracija"}
+                  </h2>
+                  {!isLoggedIn && (
+                    <p style={styles.cardText}>
+                      {authMode === "login"
+                        ? "Unesi email i lozinku za pristup."
+                        : "Ispuni podatke i odaberi ulogu (sportaš ili trener)."}
+                    </p>
+                  )}
+                  {isLoggedIn && (
+                    <p style={styles.cardText}>Prijavljen si u aplikaciju.</p>
+                  )}
                 </div>
               </div>
 
-              <div style={styles.inputGroup}>
-                <label style={styles.label}>Email</label>
-                <input
-                  style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
-                  placeholder="Unesi email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-
-              <div style={styles.inputGroup}>
-                <label style={styles.label}>Password</label>
-                <input
-                  style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
-                  placeholder="Unesi password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-
-              <div style={{ ...styles.row, flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center" }}>
-                <button style={getButtonStyle(false, "primary")} onClick={handleLogin}>
-                  Login
-                </button>
-              </div>
+              {isLoggedIn ? (
+                <div style={styles.cardText}>
+                  <strong>{userEmail || "N/A"}</strong>
+                  <br />
+                  Uloga: {userRole || "N/A"}
+                </div>
+              ) : (
+                <>
+                  {authMode === "login" ? (
+                    <>
+                      <div style={styles.inputGroup}>
+                        <label style={styles.label}>Email</label>
+                        <input
+                          style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                          placeholder="npr. ime@gmail.com"
+                          autoComplete="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                        />
+                      </div>
+                      <div style={styles.inputGroup}>
+                        <label style={styles.label}>Lozinka</label>
+                        <input
+                          style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                          placeholder="Lozinka"
+                          type="password"
+                          autoComplete="current-password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                        />
+                      </div>
+                      <button type="button" style={getButtonStyle(false, "primary")} onClick={handleLogin}>
+                        Prijavi se
+                      </button>
+                      <div style={styles.authFooter}>
+                        Nemaš račun?{" "}
+                        <button
+                          type="button"
+                          style={styles.authLink}
+                          onClick={() => {
+                            setAuthMode("register");
+                            setMessage("");
+                          }}
+                        >
+                          Registriraj se
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ ...styles.row, flexDirection: isMobile ? "column" : "row", gap: "10px" }}>
+                        <div style={{ ...styles.inputGroup, flex: 1, marginBottom: isMobile ? "14px" : 0 }}>
+                          <label style={styles.label}>Ime</label>
+                          <input
+                            style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                            placeholder="Ime"
+                            value={regFirstName}
+                            onChange={(e) => setRegFirstName(e.target.value)}
+                          />
+                        </div>
+                        <div style={{ ...styles.inputGroup, flex: 1, marginBottom: 0 }}>
+                          <label style={styles.label}>Prezime</label>
+                          <input
+                            style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                            placeholder="Prezime"
+                            value={regLastName}
+                            onChange={(e) => setRegLastName(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div style={styles.inputGroup}>
+                        <label style={styles.label}>Email</label>
+                        <input
+                          style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                          placeholder="npr. ime@gmail.com"
+                          autoComplete="email"
+                          value={regEmail}
+                          onChange={(e) => setRegEmail(e.target.value)}
+                        />
+                      </div>
+                      <div style={styles.inputGroup}>
+                        <label style={styles.label}>Uloga</label>
+                        <select
+                          style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                          value={regRole}
+                          onChange={(e) => setRegRole(e.target.value)}
+                        >
+                          <option value="ATHLETE">Sportaš</option>
+                          <option value="COACH">Trener</option>
+                        </select>
+                      </div>
+                      <div style={styles.inputGroup}>
+                        <label style={styles.label}>Lozinka</label>
+                        <input
+                          style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                          placeholder="Min. 6 znakova"
+                          type="password"
+                          autoComplete="new-password"
+                          value={regPassword}
+                          onChange={(e) => setRegPassword(e.target.value)}
+                        />
+                      </div>
+                      <div style={styles.inputGroup}>
+                        <label style={styles.label}>Ponovi lozinku</label>
+                        <input
+                          style={{ ...styles.input, minHeight: isMobile ? "44px" : styles.input.minHeight }}
+                          placeholder="Ista lozinka"
+                          type="password"
+                          autoComplete="new-password"
+                          value={regPasswordConfirm}
+                          onChange={(e) => setRegPasswordConfirm(e.target.value)}
+                        />
+                      </div>
+                      <button type="button" style={getButtonStyle(false, "primary")} onClick={handleRegister}>
+                        Registriraj se
+                      </button>
+                      <div style={styles.authFooter}>
+                        Već imaš račun?{" "}
+                        <button
+                          type="button"
+                          style={styles.authLink}
+                          onClick={() => {
+                            setAuthMode("login");
+                            setMessage("");
+                          }}
+                        >
+                          Prijavi se
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
 
               {message && <div style={messageStyle}>{message}</div>}
             </div>
 
-            <div style={{ ...styles.card, padding: isMobile ? "14px" : "20px", borderRadius: isMobile ? "14px" : "18px" }}>
-              <div style={styles.cardHeader}>
-                <div>
-                  <h2 style={styles.cardTitle}>Metodologija testa</h2>
-                  <p style={styles.cardText}>Sažetak načina prikupljanja i klasifikacije aktivnosti.</p>
-                </div>
-              </div>
-
-              <div style={styles.panelList}>
-                <div style={styles.panelItem}>
-                  <div style={styles.panelItemLabel}>Ulazni podaci</div>
-                  <div style={styles.panelItemValue}>Akcelerometar (X, Y, Z) i žiroskop (X, Y, Z)</div>
-                </div>
-                <div style={styles.panelItem}>
-                  <div style={styles.panelItemLabel}>Trenutni testni uzorci</div>
-                  <div style={styles.panelItemValue}>Manualno slanje RUNNING / WALKING / IDLE payloada</div>
-                </div>
-                <div style={styles.panelItem}>
-                  <div style={styles.panelItemLabel}>Klasifikacija aktivnosti</div>
-                  <div style={styles.panelItemValue}>Ako je prosječna magnituda akceleracije &gt; 11 → RUNNING, inače WALKING</div>
-                </div>
-                <div style={styles.panelItem}>
-                  <div style={styles.panelItemLabel}>Rezultati analize</div>
-                  <div style={styles.panelItemValue}>Po sessionu se spremaju avg/max akceleracija i detektirana aktivnost</div>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ ...styles.card, padding: isMobile ? "14px" : "20px", borderRadius: isMobile ? "14px" : "18px" }}>
-              <div style={styles.cardHeader}>
-                <div>
-                  <h2 style={styles.cardTitle}>Praćenje aktivnosti</h2>
-                  <p style={styles.cardText}>Slanje testnih podataka i završetak sessiona za klasifikaciju.</p>
-                </div>
-              </div>
-
-              <div style={styles.panelList}>
-                <div style={styles.panelItem}>
-                  <div style={styles.panelItemLabel}>Aktivna session</div>
-                  <div style={styles.panelItemValue}>{currentSessionId || "Nema aktivne session"}</div>
-                </div>
-                <div style={styles.panelItem}>
-                  <div style={styles.panelItemLabel}>Zadnja prepoznata aktivnost</div>
-                  <div style={styles.panelItemValue}>{lastActivity || "Nema rezultata"}</div>
-                </div>
-                <div style={styles.panelItem}>
-                  <div style={styles.panelItemLabel}>Zadnji rezultat sessiona</div>
-                  <div style={styles.panelItemValue}>
-                    {lastSessionResult?.session?.id
-                      ? `Session #${lastSessionResult.session.id} • ${lastSessionResult.session.detected_activity || "N/A"}`
-                      : "Nema dohvaćenog rezultata"}
-                  </div>
-                  {lastSessionResult?.result && (
-                    <div style={{ ...styles.cardText, marginTop: "8px" }}>
-                      Avg: {Number(lastSessionResult.result.avg_acceleration).toFixed(2)} • Max:{" "}
-                      {Number(lastSessionResult.result.max_acceleration).toFixed(2)}
-                    </div>
-                  )}
-                  {(lastSessionResult?.session?.started_at || lastSessionResult?.session?.ended_at) && (
-                    <div style={{ ...styles.cardText, marginTop: "6px" }}>
-                      Start: {lastSessionResult.session.started_at ? new Date(lastSessionResult.session.started_at).toLocaleString() : "N/A"}
-                      {" • "}
-                      End: {lastSessionResult.session.ended_at ? new Date(lastSessionResult.session.ended_at).toLocaleString() : "N/A"}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ height: "14px" }} />
-
-              <div
-                style={{
-                  ...styles.sensorGrid,
-                  gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr"
-                }}
-              >
-                <button
-                  style={getButtonStyle(!currentSessionId, "soft")}
-                  onClick={sendRunningData}
-                  disabled={!currentSessionId}
-                >
-                  Running data
-                </button>
-                <button
-                  style={getButtonStyle(!currentSessionId, "soft")}
-                  onClick={sendWalkingData}
-                  disabled={!currentSessionId}
-                >
-                  Walking data
-                </button>
-                <button
-                  style={getButtonStyle(!currentSessionId, "soft")}
-                  onClick={sendIdleData}
-                  disabled={!currentSessionId}
-                >
-                  Idle data
-                </button>
-                <button
-                  style={getButtonStyle(!currentSessionId || isLiveCapture, "soft")}
-                  onClick={startLiveSensorCapture}
-                  disabled={!currentSessionId || isLiveCapture}
-                >
-                  Start live sensor
-                </button>
-                <button
-                  style={getButtonStyle(!isLiveCapture, "danger")}
-                  onClick={stopLiveSensorCapture}
-                  disabled={!isLiveCapture}
-                >
-                  Stop live sensor
-                </button>
-                <button
-                  style={getButtonStyle(!currentSessionId, "danger")}
-                  onClick={finishSession}
-                  disabled={!currentSessionId}
-                >
-                  Finish session
-                </button>
-              </div>
-
-              <div style={{ ...styles.cardText, marginTop: "10px" }}>
-                Live samples poslano: {liveSampleCount}
-              </div>
-
-              {lastSessionResult?.session?.id && (
-                <div style={{ marginTop: "12px" }}>
-                  <div style={{ ...styles.row, flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "center" }}>
-                    <button
-                      style={getButtonStyle(false, "secondary")}
-                      onClick={() => fetchSessionResult(lastSessionResult.session.id)}
-                    >
-                      Osvježi rezultat
-                    </button>
-                    <button
-                      style={getButtonStyle(false, "secondary")}
-                      onClick={exportSelectedSessionToCsv}
-                    >
-                      Export odabrani
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div> 
           </div>
         </div>
       </div>

@@ -9,7 +9,10 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
-    "set-role": "node scripts/setUserRole.js"
+    "set-role": "node scripts/setUserRole.js",
+    "set-password": "node scripts/setUserPassword.js",
+    "seed:demo-users": "node scripts/seedDemoUsers.js",
+    "seed:participations": "node scripts/seedAllUsersOnAllTrainings.js"
   },
   "keywords": [],
   "author": "",

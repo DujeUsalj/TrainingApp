@@ -5,6 +5,35 @@ exports.startSession = async (req, res) => {
     const userId = req.user.id;
     const { trainingId } = req.body;
 
+    if (trainingId === undefined || trainingId === null || trainingId === "") {
+      return res.status(400).json({ message: "trainingId is required" });
+    }
+
+    const existingParticipation = await pool.query(
+      `SELECT 1 FROM participations WHERE user_id = $1 AND training_id = $2`,
+      [userId, trainingId],
+    );
+
+    if (existingParticipation.rows.length === 0) {
+      try {
+        await pool.query(
+          `INSERT INTO participations (user_id, training_id) VALUES ($1, $2)`,
+          [userId, trainingId],
+        );
+      } catch (insertErr) {
+        if (insertErr.code === "23505") {
+          // paralelna prijava — nastavi
+        } else if (insertErr.code === "23514") {
+          return res.status(400).json({
+            message:
+              "Baza ne dopušta prijavu na trening za ovu ulogu. Javi se administratoru ili koristi sportaški račun.",
+          });
+        } else {
+          throw insertErr;
+        }
+      }
+    }
+
     const result = await pool.query(
       `INSERT INTO sensor_sessions (user_id, training_id)
        VALUES ($1, $2)
@@ -18,6 +47,11 @@ exports.startSession = async (req, res) => {
     });
   } catch (error) {
     console.error("Start session error:", error.message);
+    if (error.code === "23503") {
+      return res.status(400).json({
+        message: "Trening ne postoji ili nisi prijavljen na trening (provjeri ID treninga).",
+      });
+    }
     res.status(500).json({ message: "Server error" });
   }
 };
